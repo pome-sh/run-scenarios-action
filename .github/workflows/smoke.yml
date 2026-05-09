@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Smoke test for the action — calls `uses: ./` against a placeholder
+# scenario, proving the action consumes its own metadata end to end.
+#
+# Currently gated on `workflow_dispatch` only because `pome-sh` is not yet
+# published to npm; the install step would 404. After OSS Launch Stage 1
+# (when `pome-sh@latest` resolves), flip the trigger block to:
+#
+#   on:
+#     pull_request:
+#     push:
+#       branches: [main]
+#
+# Tracking: pome-sh/pome FDRS-254 follow-up at Stage 1 publish.
+name: smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - id: pome
+        uses: ./
+        with:
+          scenario-path: .github/smoke-scenario.md
+      - run: |
+          echo "result=${{ steps.pome.outputs.result }}"
+          echo "trace-artifact-id=${{ steps.pome.outputs.trace-artifact-id }}"

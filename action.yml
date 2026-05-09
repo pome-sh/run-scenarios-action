@@ -1,0 +1,98 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: 'Run pome scenarios'
+description: 'Run pome scenarios in CI against a local twin (default) or the hosted control plane'
+author: 'pome-sh'
+branding:
+  icon: 'check-circle'
+  color: 'green'
+
+inputs:
+  scenario-path:
+    description: 'Path to a scenario .md file (or a directory of them) in the consumer repo.'
+    required: true
+  pome-version:
+    description: 'npm dist-tag or version of `pome-sh` to install. Pin in production.'
+    required: false
+    default: 'latest'
+  hosted-api-key:
+    description: |
+      If non-empty, the action runs the scenario against the Pome hosted control plane
+      (sets `POME_API_KEY` and passes `--hosted` to the CLI). If empty (default), the
+      CLI boots a local twin in-process for the duration of the run. Source this from
+      a repo secret, e.g. `${{ secrets.POME_API_KEY }}`.
+    required: false
+    default: ''
+  agent-command:
+    description: |
+      Shell command the CLI spawns to run your agent against the twin. Forwarded to
+      `pome run --agent <command>`. If empty, the CLI default applies — note the
+      built-in default points at a sample path inside the `pome` repo and is not
+      useful in a consumer workflow, so most users should set this explicitly.
+    required: false
+    default: ''
+
+outputs:
+  result:
+    description: '`pass` or `fail`.'
+    value: ${{ steps.pome-run.outputs.result }}
+  trace-artifact-id:
+    description: 'GitHub Actions artifact ID for the uploaded trace directory.'
+    value: ${{ steps.upload-trace.outputs.artifact-id }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Node 20
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Cache npm
+      uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: pome-sh-${{ runner.os }}-${{ inputs.pome-version }}
+        restore-keys: |
+          pome-sh-${{ runner.os }}-
+
+    - name: Install pome-sh CLI
+      shell: bash
+      run: |
+        # SPDX-License-Identifier: AGPL-3.0-only
+        npm install --global "pome-sh@${{ inputs.pome-version }}"
+        pome --version || true
+
+    - name: Run scenario
+      id: pome-run
+      shell: bash
+      env:
+        POME_API_KEY: ${{ inputs.hosted-api-key }}
+      run: |
+        # SPDX-License-Identifier: AGPL-3.0-only
+        ARGS=("${{ inputs.scenario-path }}")
+        if [ -n "${{ inputs.hosted-api-key }}" ]; then
+          ARGS+=(--hosted)
+        fi
+        if [ -n "${{ inputs.agent-command }}" ]; then
+          ARGS+=(--agent "${{ inputs.agent-command }}")
+        fi
+        set +e
+        pome run "${ARGS[@]}"
+        STATUS=$?
+        set -e
+        if [ "$STATUS" -eq 0 ]; then
+          echo "result=pass" >> "$GITHUB_OUTPUT"
+        else
+          echo "result=fail" >> "$GITHUB_OUTPUT"
+          exit "$STATUS"
+        fi
+
+    - name: Upload trace artifact
+      id: upload-trace
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pome-trace-${{ github.run_id }}-${{ github.run_attempt }}
+        path: runs/**
+        if-no-files-found: warn
+        retention-days: 30
